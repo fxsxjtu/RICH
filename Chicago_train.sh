@@ -1,0 +1,1 @@
+python train_session.py --data ch_data --lr 0.0005 --n_epoch 30 --weight_decay 5e-4
