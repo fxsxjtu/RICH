@@ -12,6 +12,7 @@ Chicago data: ch_data
 
 NewYork City data: ny_data
 ## Train command
+    first unzip the dataset files in /ny_bnb/final_data
     # Train with model
     python train_session.py --{multiple settings}
 
