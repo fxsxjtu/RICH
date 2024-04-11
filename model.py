@@ -3,11 +3,9 @@ import torch.nn as nn
 import numpy as np
 from memory import Memory
 
-
-
-class STBNB(nn.Module):
+class RICH(nn.Module):
     def __init__(self, node_feature, n_nodes, emb_size, device):
-        super(STBNB, self).__init__()
+        super(RICH, self).__init__()
         self.n_nodes = n_nodes
         self.device = device
         self.emb_size = emb_size
@@ -89,13 +87,7 @@ class STBNB(nn.Module):
         last_time[taxi_appear] = taxi_time2
         return day_unique_id, last_time[day_unique_id]
 
-    def node_embedding(self, updated_memory, day_24_messages, updated_lastupdate, now_time, day_unique_ids):
-        return updated_memory
-
     def forward(self, batch_data, now_time, context_type="none", context_embeddings=None, context_labels=None):
-        if context_type == "none":
-            results = self.output_module(self.static_embedding.weight)
-            return results, None
         slices = len(batch_data)
         batch_time = (np.arange(slices) - slices + 1) * 3600 + now_time
         unique_ids = []
@@ -116,27 +108,27 @@ class STBNB(nn.Module):
         updated_memory, updated_lastupdate = self.update_memory(yesterday_memory, yesterday_updatetime, day_message,
                                                                 day_unique_ids, day_unique_timestamps)
         self.memory_taxi.update_memory(updated_memory, updated_lastupdate)
-        node_embeddings = self.node_embedding(updated_memory, day_24_messages, updated_lastupdate, now_time, day_unique_ids)
-        if context_type == "temporal":
-            n_len, n_nodes, n_task = context_labels.shape  # T N 2
-            result_list = []
-            attention_list = []
-            for task_i in range(n_task):
-                context_label = context_labels[:, :, task_i]
-                label_mean = np.mean(context_label)
-                label_std = np.std(context_label)
-                context_label = (context_label - label_mean) / label_std
-                context_label = torch.FloatTensor(context_label).to(self.device).reshape([n_len * n_nodes, 1])
-                Q = self.wq(node_embeddings)  # N d
-                K = (self.wk(context_embeddings).reshape([n_len * n_nodes, self.emb_size]) + self.wk2(
-                    context_label)).reshape([n_len, n_nodes, self.emb_size])
-                V = self.wv(context_label).reshape([n_len, n_nodes, self.emb_size])
-                attention_score = torch.einsum("nd,tnd->tn", Q, K) / np.sqrt(self.emb_size)
-                attentions = torch.nn.functional.softmax(attention_score, dim=0)
-                output = torch.einsum("tn,tnd->nd", attentions, V)
-                results = self.output_module(output)
-                result_list.append(results * label_std + label_mean)
-                attention_list.append(attentions)
+        node_embeddings = updated_memory
+
+        n_len, n_nodes, n_task = context_labels.shape  # T N 2
+        result_list = []
+        attention_list = []
+        for task_i in range(n_task):
+            context_label = context_labels[:, :, task_i]
+            label_mean = np.mean(context_label)
+            label_std = np.std(context_label)
+            context_label = (context_label - label_mean) / label_std
+            context_label = torch.FloatTensor(context_label).to(self.device).reshape([n_len * n_nodes, 1])
+            Q = self.wq(node_embeddings)  # N d
+            K = (self.wk(context_embeddings).reshape([n_len * n_nodes, self.emb_size]) + self.wk2(
+                context_label)).reshape([n_len, n_nodes, self.emb_size])
+            V = self.wv(context_label).reshape([n_len, n_nodes, self.emb_size])
+            attention_score = torch.einsum("nd,tnd->tn", Q, K) / np.sqrt(self.emb_size)
+            attentions = torch.nn.functional.softmax(attention_score, dim=0)
+            output = torch.einsum("tn,tnd->nd", attentions, V)
+            results = self.output_module(output)
+            result_list.append(results * label_std + label_mean)
+            attention_list.append(attentions)
             concat_result = torch.cat(result_list, dim=-1) # N 2
             attentions = torch.cat(attention_list)
             return concat_result, node_embeddings.detach().clone(), attentions
