@@ -53,13 +53,10 @@ class STBNB(nn.Module):
                 ind = (taxi_start == id_i)
                 ind_start_raw_messages = start_raw_messages[ind]
                 aggregated_raw_messages = torch.sum(ind_start_raw_messages * time_factor[ind], dim=0)/torch.sum(time_factor[ind])
-                # aggregated_raw_messages = torch.mean(ind_start_raw_messages, dim=0)  # todo: more complicated aggregation
-                # todo: more complicated aggregation
                 appear_raw_messages[i, :self.raw_message_dim // 2] = aggregated_raw_messages
             if id_i in taxi_end:
                 ind = (taxi_end == id_i)
                 ind_end_raw_messages = end_raw_messages[ind]
-                # aggregated_raw_messages = torch.mean(ind_end_raw_messages, dim=0)
                 aggregated_raw_messages = torch.sum(ind_end_raw_messages * time_factor[ind], dim=0)/torch.sum(time_factor[ind])
                 appear_raw_messages[i, self.raw_message_dim // 2:] = aggregated_raw_messages
         return appear_unique_ids, appear_raw_messages
@@ -78,7 +75,6 @@ class STBNB(nn.Module):
                       day_unique_timestamps):
         unique_updated_memory = self.updater(day_message, yesterday_memory[day_unique_ids])
         yesterday_memory[day_unique_ids] = unique_updated_memory
-        # yesterday_updatetime[day_unique_ids] = torch.FloatTensor(day_unique_timestamps).to(self.device)
         yesterday_updatetime[day_unique_ids] = day_unique_timestamps
         return yesterday_memory, yesterday_updatetime
 
@@ -94,19 +90,10 @@ class STBNB(nn.Module):
         return day_unique_id, last_time[day_unique_id]
 
     def node_embedding(self, updated_memory, day_24_messages, updated_lastupdate, now_time, day_unique_ids):
-        # todo time aware embedding
-        # updated_memory[day_unique_ids] = updated_memory[day_unique_ids] + torch.mean(self.region_time_attention(day_24_messages), dim=1)
-
         return updated_memory
 
     def forward(self, batch_data, now_time, context_type="none", context_embeddings=None, context_labels=None):
-        """
-        context_embeddings: T N d
-        context_labels: T N 2
-        """
         if context_type == "none":
-            # results = self.output_module(node_embeddings+self.static_embedding.weight)
-            # results = self.output_module(node_embeddings)
             results = self.output_module(self.static_embedding.weight)
             return results, None
         slices = len(batch_data)

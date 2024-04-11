@@ -77,7 +77,6 @@ def infer(model, taxi_start, taxi_end, taxi_timestamp, taxi_backpoints, labels, 
                 label = labels[label_index + 1]
                 if context_type == "spatial":
                     input_context_embeddings = np.arange(n_nodes)[:int(n_nodes * 0.8)]
-                    # input_context_embeddings = np.random.choice(np.arange(n_nodes), n_nodes * 0.8, replace=False)
                     context_label = label[input_context_embeddings]
                 else:
                     if label_index >= context_len - 1:
@@ -88,24 +87,19 @@ def infer(model, taxi_start, taxi_end, taxi_timestamp, taxi_backpoints, labels, 
 
                 output, embeddings, attention = model(batch_data, now_slice * 3600, context_type, input_context_embeddings,
                                            context_label)
-                print(embeddings)
                 context_embeddings.append(embeddings)
-                print(context_embeddings)
                 embeddings_list.append(embeddings)
-                print(embeddings_list)
                 attentions.append(attention)
                 if label_index >= eval_start_day:
                     if context_type == "spatial":
                         targets.append(label[int(n_nodes * 0.8):])
                         predictions.append(output[int(n_nodes * 0.8):])
                     else:
-
                         targets.append(label)
                         predictions.append(output)
             batch_data = []
     predictions = torch.stack(predictions).cpu().detach().numpy()
     targets = np.stack(targets)
-
     rmses = []
     r2s = []
     pccs = []
@@ -138,7 +132,6 @@ def infer_flow(model, taxi_start, taxi_end, taxi_timestamp, taxi_backpoints, lab
                 label = labels[label_index + 1]
                 if context_type == "spatial":
                     input_context_embeddings = np.arange(n_nodes)[:int(n_nodes * 0.8)]
-                    # input_context_embeddings = np.random.choice(np.arange(n_nodes), n_nodes * 0.8, replace=False)
                     context_label = label[input_context_embeddings]
                 else:
                     if label_index >= context_len - 1:
@@ -146,9 +139,6 @@ def infer_flow(model, taxi_start, taxi_end, taxi_timestamp, taxi_backpoints, lab
                     else:
                         context_label = labels[:label_index + 1]
                     input_context_embeddings = torch.stack(context_embeddings[-context_len:])
-
-                print(input_context_embeddings.shape)
-                print(context_label.shape)
                 output, embeddings, attentions = model(batch_data, now_slice * 3600, context_type, input_context_embeddings,
                                            context_label)
                 context_embeddings.append(embeddings)
@@ -157,8 +147,6 @@ def infer_flow(model, taxi_start, taxi_end, taxi_timestamp, taxi_backpoints, lab
                         targets.append(label[int(n_nodes * 0.8):])
                         predictions.append(output[int(n_nodes * 0.8):])
                     else:
-                        # print("label is ", label.reshape(-1))
-                        # print("output is ", output.reshape(-1))
                         targets.append(label)
                         predictions.append(output)
             batch_data = []
@@ -245,7 +233,6 @@ def train_session(args):
         model.train()
         print('#' * 20)
         start_time = time.time()
-        # model.reset_memory()
         count = 0
         batch_data = []
         context_embeddings = [model.memory_taxi.memory.detach()]
@@ -278,7 +265,6 @@ def train_session(args):
                     loss = loss_func(output.squeeze().float()[:, :2], torch.tensor(label[:, :2]).float().to(cuda_device)) + loss_od(output.squeeze().float()[:, 2:], torch.tensor(label[:, 2:]).float().to(cuda_device))
                     print(f'epoch={i + 1}, days={label_index}, this step loss={loss}')
                     optimizer.zero_grad()
-                    # loss = torch.clamp(loss,0, 1000000)
                     loss.backward()
                     optimizer.step()
                     batch_data = []
@@ -339,10 +325,6 @@ def train_session(args):
             file.write(f'pcc_flow: {np.mean(pcc_flow)}\n')
     os.makedirs("./result/prediction", exist_ok=True)
     np.save(os.path.join("./result/prediction", f'{save_name}.npy'), np.stack([targets, predictions]))
-    # with open(f'attention_result/{save_name}.pkl', 'wb') as f:
-    #     pickle.dump(attentions, f)
-    # with open(f'embedding_result/{save_name}.pkl', 'wb') as f:
-    #     pickle.dump(embeddings_list, f)
 
 
 if __name__ == '__main__':
