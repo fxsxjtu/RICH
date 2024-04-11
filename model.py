@@ -87,7 +87,7 @@ class RICH(nn.Module):
         last_time[taxi_appear] = taxi_time2
         return day_unique_id, last_time[day_unique_id]
 
-    def forward(self, batch_data, now_time, context_type="none", context_embeddings=None, context_labels=None):
+    def forward(self, batch_data, now_time, context_embeddings=None, context_labels=None):
         slices = len(batch_data)
         batch_time = (np.arange(slices) - slices + 1) * 3600 + now_time
         unique_ids = []
@@ -129,6 +129,6 @@ class RICH(nn.Module):
             results = self.output_module(output)
             result_list.append(results * label_std + label_mean)
             attention_list.append(attentions)
-            concat_result = torch.cat(result_list, dim=-1) # N 2
-            attentions = torch.cat(attention_list)
-            return concat_result, node_embeddings.detach().clone(), attentions
+        concat_result = torch.cat(result_list, dim=-1)  # N 2
+        attentions = torch.cat(attention_list)
+        return concat_result, node_embeddings.detach().clone(), attentions

@@ -1,5 +1,4 @@
 import os
-import pickle
 import torch
 import torch.nn as nn
 import time
@@ -56,14 +55,13 @@ def calu_value(prediction, label):
 
 
 def infer(model, taxi_start, taxi_end, taxi_timestamp, taxi_backpoints, labels, start_day, eval_start_day, end_day,
-          device, data_config, context_type, context_len, context_embeddings=None):
+          context_len, context_embeddings=None):
     model.eval()
     predictions = []
     targets = []
     batch_data = []
     attentions = []
     embeddings_list = []
-    n_nodes = data_config["n_nodes"]
     if context_embeddings is None:
         context_embeddings = [model.memory_taxi.memory.detach()]
     for now_slice in range(start_day * 24, end_day * 24):
@@ -82,7 +80,7 @@ def infer(model, taxi_start, taxi_end, taxi_timestamp, taxi_backpoints, labels, 
                     context_label = labels[:label_index + 1]
                 input_context_embeddings = torch.stack(context_embeddings[-context_len:])
 
-                output, embeddings, attention = model(batch_data, now_slice * 3600, context_type, input_context_embeddings,
+                output, embeddings, attention = model(batch_data, now_slice * 3600,  input_context_embeddings,
                                            context_label)
                 context_embeddings.append(embeddings)
                 embeddings_list.append(embeddings)
@@ -105,50 +103,7 @@ def infer(model, taxi_start, taxi_end, taxi_timestamp, taxi_backpoints, labels, 
         pccs.append(pcc)
     return rmses, r2s, maes, pccs, predictions, targets, attentions, embeddings_list
 
-def infer_flow(model, taxi_start, taxi_end, taxi_timestamp, taxi_backpoints, labels, start_day, eval_start_day, end_day,
-          device, data_config, context_type, context_len, context_embeddings=None):
-    model.eval()
-    predictions = []
-    targets = []
-    batch_data = []
-    if context_embeddings is None:
-        context_embeddings = [model.memory_taxi.memory.detach()]
-    for now_slice in range(start_day * 24, end_day * 24):
-        taxi_batch_head = taxi_backpoints[now_slice]
-        taxi_batch_tail = taxi_backpoints[now_slice + 1]
-        batch_data.append([taxi_start[taxi_batch_head:taxi_batch_tail], taxi_end[taxi_batch_head:taxi_batch_tail],
-                           taxi_timestamp[taxi_batch_head:taxi_batch_tail]])
-        label_index = now_slice // 24
-        if now_slice % 24 == 23:
-            with torch.no_grad():
-                label = labels[label_index + 1]
 
-                if label_index >= context_len - 1:
-                    context_label = labels[label_index - context_len + 1:label_index + 1]
-                else:
-                    context_label = labels[:label_index + 1]
-                input_context_embeddings = torch.stack(context_embeddings[-context_len:])
-                output, embeddings, attentions = model(batch_data, now_slice * 3600, context_type, input_context_embeddings,
-                                           context_label)
-                context_embeddings.append(embeddings)
-                if label_index >= eval_start_day:
-                    targets.append(label)
-                    predictions.append(output)
-            batch_data = []
-    predictions = torch.stack(predictions).cpu().detach().numpy()
-    targets = np.stack(targets)
-
-    rmses = []
-    r2s = []
-    pccs = []
-    maes = []
-
-    rmse, r2, mae, pcc = calu_value(predictions.reshape(-1), targets.reshape(-1))
-    rmses.append(rmse)
-    r2s.append(r2)
-    maes.append(mae)
-    pccs.append(pcc)
-    return rmses, r2s, maes, pccs, predictions, targets
 
 def get_data(data_config):
     taxi_path = data_config["data_path"]
@@ -197,7 +152,6 @@ def train_session(args):
     flow_labels = np.concatenate((flow_labels, od_matrix[:, :, :args.select_od_nodes]), axis=2)
     taxi_timestamp = torch.FloatTensor(taxi_timestamp).to(device=cuda_device)
     context_len = args.contextlen
-    context_type = args.context
     assert np.isnan(flow_labels).any() == False, 'label error'
     taxi_end = [int(x) for x in taxi_end]
     taxi_start = [int(x) for x in taxi_start]
@@ -234,9 +188,10 @@ def train_session(args):
                     else:
                         context_label = flow_labels[:label_index + 1]
                     input_context_embeddings = torch.stack(context_embeddings[-context_len:])
-                    output, embeddings, _ = model(batch_data, now_slice * 3600, context_type, input_context_embeddings,
+                    output, embeddings, _ = model(batch_data, now_slice * 3600,  input_context_embeddings,
                                                context_label)
                     context_embeddings.append(embeddings)
+
                     loss = loss_func(output.squeeze().float()[:, :2], torch.tensor(label[:, :2]).float().to(cuda_device)) + loss_od(output.squeeze().float()[:, 2:], torch.tensor(label[:, 2:]).float().to(cuda_device))
                     print(f'epoch={i + 1}, days={label_index}, this step loss={loss}')
                     optimizer.zero_grad()
@@ -244,8 +199,7 @@ def train_session(args):
                     optimizer.step()
                     batch_data = []
         rmse, mae, pcc, r2, _, _, _, _ = infer(model, taxi_start, taxi_end, taxi_timestamp, taxi_backpoints, flow_labels,
-                                         val_start_day, val_start_day, test_start_day, cuda_device, config,
-                                         context_type,
+                                         val_start_day, val_start_day, test_start_day,
                                          context_len, context_embeddings)
         print('epoch=', i + 1, 'validation rmse= ', rmse, 'this step mae= ', mae, 'this step pcc=', pcc)
 
@@ -265,15 +219,14 @@ def train_session(args):
 
     model.load_state_dict(torch.load(save_path))
     rmse, mae, pcc, r2, predictions, targets, attentions, embeddings_list = infer(model, taxi_start, taxi_end, taxi_timestamp, taxi_backpoints,
-                                                     labels, train_start_day, test_start_day, end_day, cuda_device,
-                                                     config, context_type, context_len)
+                                                     labels, train_start_day, test_start_day, end_day,
+                                                    context_len)
 
     print('test rmse:', rmse)
     print('test r2:', r2)
     print('test mae:', mae)
     print('test pcc:', pcc)
-    print(args.weight_decay, args.lr, args.od_num, args.data, args.suffix)
-    save_name = f'prompt{context_type}_{data_name}_{suffix}_{train_time}_{context_len}'
+    save_name = f'prompt_{data_name}_{suffix}_{train_time}_{context_len}'
     with open(os.path.join(".", f'{save_name}.txt'), 'a+') as file:
         file.write(str(args))
         file.write(f'\nval best rmse is {best_rmse}\n')
@@ -284,11 +237,6 @@ def train_session(args):
         file.write(f'r2: {r2}\n')
         file.write(f'mae: {mae}\n')
         file.write(f'pcc: {pcc}\n')
-        if args.predict_flow:
-            file.write(f'rmse_flow: {np.mean(rmse_flow)}\n')
-            file.write(f'r2_flow: {np.mean(r2_flow)}\n')
-            file.write(f'mae_flow: {np.mean(mae_flow)}\n')
-            file.write(f'pcc_flow: {np.mean(pcc_flow)}\n')
     os.makedirs("./result/prediction", exist_ok=True)
     np.save(os.path.join("./result/prediction", f'{save_name}.npy'), np.stack([targets, predictions]))
 
